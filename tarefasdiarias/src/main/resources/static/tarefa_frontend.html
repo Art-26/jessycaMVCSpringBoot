@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gerenciador de Tarefas Diárias</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Poppins', sans-serif;
+            background-color: rgb(155, 251, 98);
+        }
+        /* Estilos para o estado de carregamento e mensagens */
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgb(155, 251, 98);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+        .spinner {
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            border-left-color: rgb(255, 0, 0);
+            animation: spin 1s ease infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="min-h-screen">
+
+    <div id="loading" class="loading-overlay hidden">
+        <div class="spinner"></div>
+    </div>
+
+    <div class="container mx-auto p-4 sm:p-8 max-w-4xl">
+        
+       
+        <header class="text-center py-6 bg-white shadow-lg rounded-lg mb-8">
+            <h1 class="text-3xl sm:text-4xl font-extrabold text-green-600">Gerenciador de Tarefas Diárias</h1>
+            
+        </header>
+
+      
+        <section id="form-section" class="bg-white p-6 rounded-lg shadow-xl mb-8">
+            <h2 class="text-2xl font-semibold text-gray-700 mb-4 border-b pb-2">Adicionar Nova Tarefa</h2>
+            <form id="form-nova-tarefa" class="space-y-4">
+                
+                
+                <div>
+                    <label for="titulo" class="block text-sm font-medium text-gray-700">Título</label>
+                    <input type="text" id="titulo" name="titulo" required 
+                           class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+                </div>
+
+               
+                <div>
+                    <label for="descricao" class="block text-sm font-medium text-gray-700">Descrição</label>
+                    <textarea id="descricao" name="descricao" rows="3"
+                              class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"></textarea>
+                </div>
+
+              
+                <div>
+                    <label for="data-limite" class="block text-sm font-medium text-gray-700">Data Limite</label>
+                    <input type="date" id="data-limite" name="dataLimite"
+                           class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+                </div>
+
+                <div>
+                    <label for="status-id" class="block text-sm font-medium text-gray-700">Status (ID)</label>
+                    <p class="text-xs text-gray-500 mb-1">Usando Status ID 1 (Em Andamento) como padrão, (2: Concluída) (3: Cancelada).</p>
+                    <input type="number" id="status-id" name="status" value="1" required min="1"
+                           class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm bg-gray-50 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" readonly>
+                </div>
+
+                
+                <div>
+                    <label for="categoria-id" class="block text-sm font-medium text-gray-700">Categoria (ID)</label>
+                    <p class="text-xs text-gray-500 mb-1">(1: Casa) (2: Trabalho) (3: Estudos)</p>
+                    <input type="number" id="categoria-id" name="categoria" value="1" required min="1"
+                           class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+                </div>
+                
+                <button type="submit" class="w-full py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition duration-150 ease-in-out">
+                    Salvar Tarefa
+                </button>
+            </form>
+            <div id="mensagem-form" class="mt-4 p-3 rounded-md text-sm hidden"></div>
+        </section>
+
+        <!-- Lista de Tarefas -->
+        <section class="bg-white p-6 rounded-lg shadow-xl">
+            <h2 class="text-2xl font-semibold text-gray-700 mb-4 border-b pb-2">Tarefas Pendentes</h2>
+            <div id="lista-tarefas" class="space-y-3">
+                
+                <p class="text-center text-gray-500" id="mensagem-vazio">Carregando tarefas...</p>
+            </div>
+            <div id="mensagem-api-erro" class="mt-4 p-3 bg-red-100 text-red-700 rounded-md text-sm hidden"></div>
+        </section>
+
+    </div>
+
+    <script>
+       
+        const API_BASE_URL = 'http://localhost:8080/api/tarefas';
+        const listaTarefasDiv = document.getElementById('lista-tarefas');
+        const mensagemVazio = document.getElementById('mensagem-vazio');
+        const mensagemApiErro = document.getElementById('mensagem-api-erro');
+        const loadingDiv = document.getElementById('loading');
+        const formNovaTarefa = document.getElementById('form-nova-tarefa');
+        const mensagemForm = document.getElementById('mensagem-form');
+
+        function mostrarLoading(mostrar) {
+            loadingDiv.classList.toggle('hidden', !mostrar);
+        }
+
+        function mostrarMensagem(elemento, mensagem, isSucesso) {
+            elemento.textContent = mensagem;
+            elemento.classList.remove('hidden', 'bg-red-100', 'text-red-700', 'bg-green-100', 'text-green-700');
+            if (isSucesso) {
+                elemento.classList.add('bg-green-100', 'text-green-700');
+            } else {
+                elemento.classList.add('bg-red-100', 'text-red-700');
+            }
+            setTimeout(() => elemento.classList.add('hidden'), 5000);
+        }
+
+
+        function sleep(ms) {
+            return new Promise(resolve => setTimeout(resolve, ms));
+        }
+
+        async function fetchWithRetry(url, options = {}, maxRetries = 3) {
+            for (let i = 0; i < maxRetries; i++) {
+                try {
+                    const response = await fetch(url, options);
+                    if (!response.ok) {
+                        if (i === maxRetries - 1) {
+                            throw new Error(`Erro na API: ${response.status} ${response.statusText}`);
+                        }
+                        console.warn(`Tentativa ${i + 1} falhou. Status: ${response.status}. Tentando novamente em ${2 ** i}s...`);
+                    } else {
+                        return response;
+                    }
+                } catch (error) {
+                    if (i === maxRetries - 1) {
+                        throw error;
+                    }
+                    console.error(`Tentativa ${i + 1} falhou com erro de rede/conexão: ${error.message}. Tentando novamente...`);
+                }
+                await sleep(2 ** i * 1000);
+            }
+            throw new Error("Falha na requisição da API após todas as tentativas.");
+        }
+
+        async function buscarTarefas() {
+            mostrarLoading(true);
+            listaTarefasDiv.innerHTML = '';
+            mensagemVazio.textContent = 'Carregando tarefas...';
+            mensagemVazio.classList.remove('hidden');
+            mensagemApiErro.classList.add('hidden');
+
+            try {
+                const response = await fetchWithRetry(API_BASE_URL);
+                const tarefas = await response.json();
+
+                if (tarefas.length === 0) {
+                    mensagemVazio.textContent = 'Nenhuma tarefa encontrada. Adicione uma nova!';
+                } else {
+                    mensagemVazio.classList.add('hidden');
+                    tarefas.forEach(tarefa => {
+                        listaTarefasDiv.appendChild(criarCardTarefa(tarefa));
+                    });
+                }
+            } catch (error) {
+                console.error("Erro ao carregar tarefas:", error);
+                mensagemVazio.classList.add('hidden');
+                mostrarMensagem(mensagemApiErro, `Erro ao conectar/buscar dados da API. Verifique se o Spring Boot está rodando em http://localhost:8080. Detalhes: ${error.message}`, false);
+            } finally {
+                mostrarLoading(false);
+            }
+        }
+
+        // Função para criar o elemento visual de uma tarefa
+        function criarCardTarefa(tarefa) {
+            const card = document.createElement('div');
+            card.id = `tarefa-${tarefa.id}`;
+            card.className = 'flex items-center justify-between bg-gray-50 p-4 rounded-lg border border-gray-200 transition duration-150 hover:shadow-md';
+            
+            // Lógica simples para diferenciar status (idealmente viria com o nome do status)
+            let statusCor = 'bg-red-500';
+            let statusTexto = 'A Fazer (ID: ' + tarefa.status.id + ')';
+            if (tarefa.status && tarefa.status.id === 2) {
+                statusCor = 'bg-yellow-500';
+                statusTexto = 'Em Progresso (ID: 2)';
+            } else if (tarefa.status && tarefa.status.id === 3) {
+                statusCor = 'bg-green-500';
+                statusTexto = 'Concluída (ID: 3)';
+            }
+
+            // Exibe o título, descrição e metadados
+            card.innerHTML = `
+                <div class="flex-1 min-w-0 mr-4">
+                    <h3 class="text-lg font-bold text-gray-800">${tarefa.titulo} (ID: ${tarefa.id})</h3>
+                    <p class="text-gray-600 truncate">${tarefa.descricao || 'Sem descrição'}</p>
+                    <div class="flex items-center mt-2 text-sm">
+                        <span class="mr-3 ${statusCor} text-white px-2 py-0.5 rounded-full text-xs font-semibold">
+                            ${statusTexto}
+                        </span>
+                        <span class="text-gray-500">
+                            Data Limite: ${tarefa.dataLimite || 'N/A'}
+                        </span>
+                    </div>
+                    <p class="text-xs text-gray-400 mt-1">Categoria ID: ${tarefa.categoria ? tarefa.categoria.id : 'N/A'}</p>
+                </div>
+                <div>
+                    <button onclick="excluirTarefa(${tarefa.id})" class="text-red-500 hover:text-red-700 p-2 transition duration-150 rounded-full hover:bg-red-100" title="Excluir Tarefa">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                    </button>
+                </div>
+            `;
+            return card;
+        }
+
+        // Função para excluir uma tarefa
+        async function excluirTarefa(id) {
+            // Usa modal customizado simples em vez de alert()
+            const confirmacao = document.createElement('div');
+            confirmacao.className = 'fixed inset-0 bg-gray-900 bg-opacity-50 flex justify-center items-center z-50';
+            confirmacao.innerHTML = `
+                <div class="bg-white p-6 rounded-lg shadow-2xl w-full max-w-sm">
+                    <h4 class="text-lg font-bold mb-3">Confirmação de Exclusão</h4>
+                    <p class="mb-4">Tem certeza que deseja excluir a Tarefa ID ${id}?</p>
+                    <div class="flex justify-end space-x-3">
+                        <button id="btn-cancelar" class="px-4 py-2 text-gray-600 border rounded-md hover:bg-gray-100">Cancelar</button>
+                        <button id="btn-confirmar" class="px-4 py-2 text-white bg-red-600 rounded-md hover:bg-red-700">Excluir</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(confirmacao);
+
+            document.getElementById('btn-cancelar').onclick = () => confirmacao.remove();
+            document.getElementById('btn-confirmar').onclick = async () => {
+                confirmacao.remove(); // Remove o modal
+
+                mostrarLoading(true);
+                try {
+                    await fetchWithRetry(`${API_BASE_URL}/${id}`, {
+                        method: 'DELETE'
+                    });
+                    
+                    // Exclui o card da UI sem recarregar tudo
+                    const card = document.getElementById(`tarefa-${id}`);
+                    if (card) {
+                        card.remove();
+                    }
+                    if (listaTarefasDiv.children.length === 0) {
+                        mensagemVazio.textContent = 'Nenhuma tarefa encontrada. Adicione uma nova!';
+                        mensagemVazio.classList.remove('hidden');
+                    }
+                    mostrarMensagem(mensagemForm, `Tarefa ID ${id} excluída com sucesso!`, true);
+
+                } catch (error) {
+                    console.error("Erro ao excluir tarefa:", error);
+                    mostrarMensagem(mensagemForm, `Falha ao excluir Tarefa ID ${id}. Erro: ${error.message}`, false);
+                } finally {
+                    mostrarLoading(false);
+                }
+            };
+        }
+
+
+        // --- Event Listener do Formulário ---
+
+        formNovaTarefa.addEventListener('submit', async function(e) {
+            e.preventDefault();
+            mostrarLoading(true);
+            mensagemForm.classList.add('hidden');
+
+            const formData = new FormData(formNovaTarefa);
+            
+            // Constrói o objeto JSON para enviar à API
+            const novaTarefa = {
+                titulo: formData.get('titulo'),
+                descricao: formData.get('descricao'),
+                // O servidor irá preencher data_criacao, não precisamos enviar
+                dataLimite: formData.get('dataLimite') || null,
+                // Chaves estrangeiras são objetos com apenas o ID, conforme JPA
+                categoria: { id: parseInt(formData.get('categoria')) },
+                status: { id: parseInt(formData.get('status')) }
+            };
+
+            // Remove a data limite se estiver vazia (para evitar enviar string vazia como data)
+            if (!novaTarefa.dataLimite) {
+                delete novaTarefa.dataLimite;
+            }
+
+            try {
+                const response = await fetchWithRetry(API_BASE_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(novaTarefa)
+                });
+
+                const tarefaCriada = await response.json();
+
+                // Adiciona o novo card à UI e limpa o formulário
+                if (response.ok && tarefaCriada.id) {
+                    listaTarefasDiv.appendChild(criarCardTarefa(tarefaCriada));
+                    mensagemVazio.classList.add('hidden'); // Remove a mensagem de lista vazia
+                    formNovaTarefa.reset();
+                    mostrarMensagem(mensagemForm, `Tarefa "${tarefaCriada.titulo}" (ID: ${tarefaCriada.id}) criada com sucesso!`, true);
+                } else {
+                    // Trata erro de validação/servidor
+                     const erroMsg = tarefaCriada.mensagem || "Erro desconhecido ao tentar criar a tarefa.";
+                     throw new Error(erroMsg);
+                }
+
+            } catch (error) {
+                console.error("Erro ao criar tarefa:", error);
+                mostrarMensagem(mensagemForm, `Falha ao criar tarefa. Verifique os dados (Categoria/Status ID) e se o servidor está ativo. Erro: ${error.message}`, false);
+            } finally {
+                mostrarLoading(false);
+            }
+        });
+
+        // --- Inicialização ---
+        
+        // Garante que o fetch ocorra somente depois que o DOM estiver completamente carregado
+        window.addEventListener('load', buscarTarefas);
+
+    </script>
+
+</body>
+</html>
